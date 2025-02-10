@@ -1,5 +1,16 @@
 import requests
 import time
+import logging
+
+# 配置日志记录
+logging.basicConfig(
+    level=logging.DEBUG,  # 设置日志级别为 DEBUG，输出所有信息
+    format='%(asctime)s - %(levelname)s - %(message)s',  # 设置日志格式
+    handlers=[
+        logging.StreamHandler(),  # 输出到控制台
+        logging.FileHandler("app_log.log", mode='a')  # 输出到日志文件，追加模式
+    ]
+)
 
 # 定义请求的 URL
 url = "https://chintai.r6.ur-net.go.jp/chintai/api/bukken/search/map_window/"
@@ -39,11 +50,12 @@ def query_and_send_info():
         }
 
         # 发送 POST 请求
+        logging.info(f"正在请求地点 ID: {location_id} ...")
         response = requests.post(url, headers=headers, data=payload)
 
         # 输出每个请求的响应内容
-        print(f"请求 {location_id} 的响应: {response.status_code}")
-        
+        logging.debug(f"请求 {location_id} 的响应状态码: {response.status_code}")
+
         # 处理返回的数据
         if response.status_code == 200:
             data = response.json()  # 解析返回的 JSON 数据
@@ -54,6 +66,7 @@ def query_and_send_info():
             rooms_info = []
             # 仅当 'room' 字段不为空时才处理数据
             if 'room' in data and data['room']:  # 如果 'room' 不为空
+                logging.info(f"地点 {location_name} 有 {len(data['room'])} 间房间信息。")
                 for room in data['room']:
                     room_name = room.get('name')  # 获取房间名
                     room_type = room.get('type')  # 获取房间类型
@@ -77,13 +90,13 @@ def query_and_send_info():
                     "rooms": rooms_info
                 })
             else:
-                print(f"没有房间信息，跳过 {location_id}.")
-
+                logging.info(f"地点 {location_name} 没有房间信息，跳过该地点.")
         else:
-            print(f"请求 {location_id} 失败，状态码: {response.status_code}")
+            logging.error(f"请求 {location_id} 失败，状态码: {response.status_code}")
 
     # 如果所有查询的 'room' 数据都为空，则不会发送 Discord 消息
     if all_info:
+        logging.info("有有效的房间信息，开始发送到 Discord.")
         # 构建 Discord 消息内容
         fields = []
         for info in all_info:
@@ -117,18 +130,18 @@ def query_and_send_info():
             response = requests.post(webhook_url, json=data)
 
             if response.status_code in [200, 204]:
-                print("消息成功发送到 Discord.")
+                logging.info("消息成功发送到 Discord.")
             else:
-                print(f"消息发送失败，状态码: {response.status_code}")
+                logging.error(f"消息发送失败，状态码: {response.status_code}")
 
         # Discord Webhook URL
         WEBHOOK_URL = "https://discord.com/api/webhooks/1338332106694070324/nl4vTcwXLC53MPlh0qjbknHjhzvMxEVpsFvLWvggPWTRJQZrFWkKVjjAUTbVl1kKeB-z"
         send_discord_message(WEBHOOK_URL, "团地信息", "以下是查询到的商店和房间信息", fields)
     else:
-        print("没有有效的房间信息，跳过发送消息.")
+        logging.info("没有有效的房间信息，跳过发送消息.")
 
 # 每五分钟执行一次查询和发送操作
 while True:
     query_and_send_info()
-    print("等待五分钟...")
+    logging.info("等待五分钟...")
     time.sleep(300)  # 等待 300 秒，即 5 分钟
