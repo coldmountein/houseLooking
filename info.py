@@ -41,7 +41,6 @@ def query_and_send_info():
     global all_info
     all_info = []
 
-    # 遍历所有 id，逐个查询
     for location_id in location_map:
         payload = {
             "rent_low": None,
@@ -52,16 +51,13 @@ def query_and_send_info():
         }
 
         try:
-            # 发送 POST 请求
             logging.info(f"正在请求地点 ID: {location_id} ...")
             response = requests.post(url, headers=headers, data=payload)
 
-            # 输出每个请求的响应内容
             logging.debug(f"请求 {location_id} 的响应状态码: {response.status_code}")
 
-            # 处理返回的数据
             if response.status_code == 200:
-                data = response.json()  # 解析返回的 JSON 数据
+                data = response.json()
                 location_name = data.get('name')
                 shop_name = data.get('shopName')
                 shop_phone = data.get('shopNum')
@@ -136,35 +132,41 @@ def send_discord_message():
         logging.error(f"消息发送失败，状态码: {response.status_code}")
 
 # 每天发送运行状态
+status_sent_today = False
+
 def send_daily_status():
     """
-    每天发送程序运行状态。
+    每天中午 12:00 发送程序运行状态。
     """
-    WEBHOOK_URL = "https://discord.com/api/webhooks/1338332106694070324/nl4vTcwXLC53MPlh0qjbknHjhzvMxEVpsFvLWvggPWTRJQZrFWkKVjjAUTbVl1kKeB-z"
-    embed = {
-        "title": "程序运行状态",
-        "description": "程序正在正常运行。",
-        "color": 65280  # 绿色
-    }
+    global status_sent_today
 
-    data = {
-        "username": "MyBot",
-        "embeds": [embed]
-    }
+    current_time = time.localtime()
+    if current_time.tm_hour == 12 and not status_sent_today:
+        WEBHOOK_URL = "https://discord.com/api/webhooks/1338332106694070324/nl4vTcwXLC53MPlh0qjbknHjhzvMxEVpsFvLWvggPWTRJQZrFWkKVjjAUTbVl1kKeB-z"
+        embed = {
+            "title": "程序运行状态",
+            "description": "程序正在正常运行。",
+            "color": 65280  # 绿色
+        }
 
-    response = requests.post(WEBHOOK_URL, json=data)
-    if response.status_code in [200, 204]:
-        logging.info("每日状态报告成功发送到 Discord.")
-    else:
-        logging.error(f"每日状态报告发送失败，状态码: {response.status_code}")
+        data = {
+            "username": "MyBot",
+            "embeds": [embed]
+        }
+
+        response = requests.post(WEBHOOK_URL, json=data)
+        if response.status_code in [200, 204]:
+            logging.info("每日状态报告成功发送到 Discord.")
+            status_sent_today = True
+        else:
+            logging.error(f"每日状态报告发送失败，状态码: {response.status_code}")
+    elif current_time.tm_hour != 12:
+        status_sent_today = False  # 重置状态，准备下一天发送
 
 # 运行查询和状态发送
 while True:
     query_and_send_info()
-
-    # 每天发送一次状态（24 小时 = 86400 秒）
-    if time.localtime().tm_hour == 9 and time.localtime().tm_min == 0:  # 每天 9:00 发送
-        send_daily_status()
+    send_daily_status()
 
     logging.info("等待十分钟...")
     time.sleep(600)  # 10 分钟
