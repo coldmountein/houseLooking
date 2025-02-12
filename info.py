@@ -1,16 +1,14 @@
 import requests
 import time
 import logging
-import schedule
-import datetime
 
 # 配置日志记录
 logging.basicConfig(
-    level=logging.DEBUG,  # 设置日志级别为 DEBUG，输出所有信息
-    format='%(asctime)s - %(levelname)s - %(message)s',  # 设置日志格式
+    level=logging.DEBUG,  # 设置日志级别为 DEBUG
+    format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),  # 输出到控制台
-        logging.FileHandler("app_log.log", mode='a')  # 输出到日志文件，追加模式
+        logging.FileHandler("app_log.log", mode='a')  # 输出到日志文件
     ]
 )
 
@@ -36,36 +34,14 @@ location_map = [
 # 用于存储所有地点信息
 all_info = []
 
-def send_discord_message(webhook_url, title, description, fields, username="MyBot"):
-    """
-    发送嵌入消息到 Discord Webhook
-    """
-    embed = {
-        "title": title,
-        "description": description,
-        "color": 16711680,  # 红色
-        "fields": fields
-    }
-
-    data = {
-        "username": username,
-        "embeds": [embed]
-    }
-
-    response = requests.post(webhook_url, json=data)
-
-    if response.status_code in [200, 204]:
-        logging.info("消息成功发送到 Discord.")
-    else:
-        logging.error(f"消息发送失败，状态码: {response.status_code}")
-
 def query_and_send_info():
     """
     查询所有地点信息并发送到 Discord，仅当房产信息中 'room' 数据不为空时。
     """
     global all_info
-    all_info = []  # 每次查询前清空之前的数据
+    all_info = []
 
+    # 遍历所有 id，逐个查询
     for location_id in location_map:
         payload = {
             "rent_low": None,
@@ -75,81 +51,120 @@ def query_and_send_info():
             "id": location_id
         }
 
-        logging.info(f"正在请求地点 ID: {location_id} ...")
-        response = requests.post(url, headers=headers, data=payload)
-        logging.debug(f"请求 {location_id} 的响应状态码: {response.status_code}")
+        try:
+            # 发送 POST 请求
+            logging.info(f"正在请求地点 ID: {location_id} ...")
+            response = requests.post(url, headers=headers, data=payload)
 
-        if response.status_code == 200:
-            data = response.json()
-            location_name = data.get('name')
-            shop_name = data.get('shopName')
-            shop_phone = data.get('shopNum')
+            # 输出每个请求的响应内容
+            logging.debug(f"请求 {location_id} 的响应状态码: {response.status_code}")
 
-            rooms_info = []
-            if 'room' in data and data['room']:
-                logging.info(f"地点 {location_name} 有 {len(data['room'])} 间房间信息。")
-                for room in data['room']:
-                    rooms_info.append({
-                        "room_name": room.get('name'),
-                        "room_type": room.get('type'),
-                        "room_rent": room.get('rent'),
-                        "room_commonfee": room.get('commonfee'),
-                        "room_floorspace": room.get('floorspace'),
-                        "room_floor": room.get('floor')
+            # 处理返回的数据
+            if response.status_code == 200:
+                data = response.json()  # 解析返回的 JSON 数据
+                location_name = data.get('name')
+                shop_name = data.get('shopName')
+                shop_phone = data.get('shopNum')
+
+                rooms_info = []
+                if 'room' in data and data['room']:
+                    logging.info(f"地点 {location_name} 有 {len(data['room'])} 间房间信息。")
+                    for room in data['room']:
+                        rooms_info.append({
+                            "room_name": room.get('name'),
+                            "room_type": room.get('type'),
+                            "room_rent": room.get('rent'),
+                            "room_commonfee": room.get('commonfee'),
+                            "room_floorspace": room.get('floorspace'),
+                            "room_floor": room.get('floor')
+                        })
+
+                    all_info.append({
+                        "location_name": location_name,
+                        "shop_name": shop_name,
+                        "shop_phone": shop_phone,
+                        "rooms": rooms_info
                     })
-
-                all_info.append({
-                    "location_name": location_name,
-                    "shop_name": shop_name,
-                    "shop_phone": shop_phone,
-                    "rooms": rooms_info
-                })
+                else:
+                    logging.info(f"地点 {location_name} 没有房间信息，跳过该地点.")
             else:
-                logging.info(f"地点 {location_name} 没有房间信息，跳过该地点.")
-        else:
-            logging.error(f"请求 {location_id} 失败，状态码: {response.status_code}")
+                logging.error(f"请求 {location_id} 失败，状态码: {response.status_code}")
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"请求 {location_id} 时发生错误: {e}")
+            continue
 
     if all_info:
         logging.info("有有效的房间信息，开始发送到 Discord.")
-        fields = []
-        for info in all_info:
-            rooms_details = ""
-            for room in info['rooms']:
-                rooms_details += f"房间名: {room['room_name']}\n房间类型: {room['room_type']}\n租金: {room['room_rent']}\n共益费: {room['room_commonfee']}\n面积: {room['room_floorspace']}\n楼层: {room['room_floor']}\n\n"
-            fields.append({
-                "name": f"地址: {info['location_name']}",
-                "value": f"商店名称: {info['shop_name']}\n电话号码: {info['shop_phone']}\n\n房间信息:\n{rooms_details}",
-                "inline": False
-            })
-
-        WEBHOOK_URL = "https://discord.com/api/webhooks/1338332106694070324/nl4vTcwXLC53MPlh0qjbknHjhzvMxEVpsFvLWvggPWTRJQZrFWkKVjjAUTbVl1kKeB-z"
-        send_discord_message(WEBHOOK_URL, "团地信息", "以下是查询到的商店和房间信息", fields)
+        send_discord_message()
     else:
         logging.info("没有有效的房间信息，跳过发送消息.")
 
-def send_daily_report():
+def send_discord_message():
     """
-    发送程序运行状态的报告到 Discord。
+    发送房产信息到 Discord。
     """
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    report_message = f"程序运行状态报告：\n当前时间：{current_time}\n程序正在正常运行中。"
-    fields = [{
-        "name": "程序状态报告",
-        "value": report_message,
-        "inline": False
-    }]
+    fields = []
+    for info in all_info:
+        rooms_details = ""
+        for room in info['rooms']:
+            rooms_details += f"房间名: {room['room_name']}\n房间类型: {room['room_type']}\n租金: {room['room_rent']}\n共益费: {room['room_commonfee']}\n面积: {room['room_floorspace']}\n楼层: {room['room_floor']}\n\n"
+
+        fields.append({
+            "name": f"地址: {info['location_name']}",
+            "value": f"商店名称: {info['shop_name']}\n电话号码: {info['shop_phone']}\n\n房间信息:\n{rooms_details}",
+            "inline": False
+        })
 
     WEBHOOK_URL = "https://discord.com/api/webhooks/1338332106694070324/nl4vTcwXLC53MPlh0qjbknHjhzvMxEVpsFvLWvggPWTRJQZrFWkKVjjAUTbVl1kKeB-z"
-    send_discord_message(WEBHOOK_URL, "每日运行状态报告", "程序当前状态：", fields)
+    embed = {
+        "title": "团地信息",
+        "description": "以下是查询到的商店和房间信息",
+        "color": 16711680,  # 红色
+        "fields": fields
+    }
 
-# 每天早上 9 点发送状态报告
-schedule.every().day.at("12:00").do(send_daily_report)
+    data = {
+        "username": "MyBot",
+        "embeds": [embed]
+    }
 
-# 每十分钟执行一次查询和发送操作
+    response = requests.post(WEBHOOK_URL, json=data)
+    if response.status_code in [200, 204]:
+        logging.info("消息成功发送到 Discord.")
+    else:
+        logging.error(f"消息发送失败，状态码: {response.status_code}")
+
+# 每天发送运行状态
+def send_daily_status():
+    """
+    每天发送程序运行状态。
+    """
+    WEBHOOK_URL = "https://discord.com/api/webhooks/1338332106694070324/nl4vTcwXLC53MPlh0qjbknHjhzvMxEVpsFvLWvggPWTRJQZrFWkKVjjAUTbVl1kKeB-z"
+    embed = {
+        "title": "程序运行状态",
+        "description": "程序正在正常运行。",
+        "color": 65280  # 绿色
+    }
+
+    data = {
+        "username": "MyBot",
+        "embeds": [embed]
+    }
+
+    response = requests.post(WEBHOOK_URL, json=data)
+    if response.status_code in [200, 204]:
+        logging.info("每日状态报告成功发送到 Discord.")
+    else:
+        logging.error(f"每日状态报告发送失败，状态码: {response.status_code}")
+
+# 运行查询和状态发送
 while True:
     query_and_send_info()
-    logging.info("等待十分钟...")
-    time.sleep(600)  # 等待 600 秒，即 10 分钟
 
-    # 检查并运行每天的任务
-    schedule.run_pending()
+    # 每天发送一次状态（24 小时 = 86400 秒）
+    if time.localtime().tm_hour == 9 and time.localtime().tm_min == 0:  # 每天 9:00 发送
+        send_daily_status()
+
+    logging.info("等待十分钟...")
+    time.sleep(600)  # 10 分钟
